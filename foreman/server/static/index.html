@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Foreman — self-verifying AI CAD</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0c0e12; --panel:#13161c; --panel2:#181c24; --line:#232834; --text:#e8eaf0; --muted:#8e97ab; --accent:#ff7a45; --accent2:#ffb088; --ok:#3ecf8e; --bad:#ff5c5c; --warn:#f5c451; --code:#0a0c10; --blue:#7aa7ff; }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system, "Inter", "Segoe UI", sans-serif; display:grid; grid-template-columns:var(--left-w, 420px) minmax(0,1fr) 440px; grid-template-rows:50px minmax(0,1fr); overflow:hidden; }
+  header { grid-column:1 / -1; display:flex; align-items:center; gap:14px; padding:0 16px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header h1 { font-size:15px; margin:0; letter-spacing:.2px; font-weight:700; } header h1 span { color:var(--accent); }
+  header .sub { color:var(--muted); font-size:12px; }
+  header .right { margin-left:auto; display:flex; gap:10px; align-items:center; color:var(--muted); font-size:12px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--ok); display:inline-block; margin-right:6px; }
+  .dot.bad { background:var(--bad); }
+  .panel { background:var(--panel); display:flex; flex-direction:column; min-height:0; min-width:0; }
+  #left { border-right:1px solid var(--line); position:relative; }
+  #splitter { position:absolute; top:0; right:-4px; width:8px; height:100%; cursor:col-resize; z-index:5; }
+  #splitter:hover, #splitter.drag { background:linear-gradient(90deg, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px); }
+  #composer-grip { height:10px; margin:-10px -14px 4px; cursor:row-resize; display:flex; justify-content:center; align-items:center; }
+  #composer-grip::after { content:""; width:36px; height:4px; border-radius:2px; background:#2f3644; }
+  #composer-grip:hover::after, #composer-grip.drag::after { background:var(--accent); }
+  body.dragging, body.dragging * { user-select:none !important; }
+  #right { border-left:1px solid var(--line); }
+  .sec { padding:10px 14px; border-bottom:1px solid var(--line); }
+  .sec h3 { margin:0 0 8px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.6px; font-weight:600; display:flex; align-items:center; gap:8px; }
+  .sec h3 .cnt { margin-left:auto; font-weight:500; text-transform:none; letter-spacing:0; }
+
+  /* checklist */
+  #checklist { display:flex; flex-direction:column; gap:4px; max-height:260px; overflow:auto; }
+  .req { display:grid; grid-template-columns:18px 1fr auto; gap:8px; align-items:start; font-size:12.5px; padding:4px 6px; border-radius:6px; }
+  .req .ic { width:14px; height:14px; border-radius:50%; border:1.5px solid var(--muted); margin-top:3px; }
+  .req.pass .ic { background:var(--ok); border-color:var(--ok); } .req.fail .ic { background:var(--bad); border-color:var(--bad); }
+  .req.pass { background:rgba(62,207,142,.07); } .req.fail { background:rgba(255,92,92,.08); }
+  .req .res { color:var(--muted); font-size:11.5px; max-width:140px; text-align:right; overflow-wrap:anywhere; }
+  .req .id { color:var(--muted); font-size:10.5px; margin-right:6px; }
+  #assumptions { color:var(--muted); font-size:11.5px; margin-top:6px; }
+  #checklist-empty { color:var(--muted); font-size:12px; }
+
+  /* chat */
+  #chat { flex:1; overflow:auto; padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
+  .msg { padding:10px 12px; border-radius:10px; white-space:pre-wrap; word-wrap:break-word; font-size:13.5px; }
+  .msg.user { background:#243049; align-self:flex-end; max-width:92%; }
+  .msg.agent { background:var(--panel2); }
+  .card { border:1px solid var(--line); border-radius:10px; padding:9px 11px; font-size:12.5px; background:#10131a; }
+  .card .t { color:var(--muted); font-weight:600; letter-spacing:.5px; text-transform:uppercase; font-size:10.5px; margin-bottom:5px; display:flex; gap:8px; align-items:center; }
+  .card .t .ico { width:16px; height:16px; border-radius:4px; display:inline-grid; place-items:center; font-size:10px; color:#111; font-weight:800; }
+  .ico.build { background:var(--blue); } .ico.look { background:var(--accent2); } .ico.measure { background:var(--warn); } .ico.finish { background:var(--ok); } .ico.plan { background:#c9b6ff; }
+  .card.err { border-color:#5a2a2a; } .card.err .t { color:var(--bad); }
+  .card img { width:100%; border-radius:6px; margin-top:6px; cursor:zoom-in; background:#fff; }
+  .card .mono { font:11.5px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cfd6e6; white-space:pre-wrap; word-break:break-word; }
+  .card .link { color:var(--accent2); cursor:pointer; text-decoration:underline dotted; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; background:#2a3242; color:#cfd6e6; }
+  .badge.ok { background:#163a2c; color:var(--ok); } .badge.bad { background:#3a1616; color:var(--bad); } .badge.warn { background:#3a3016; color:var(--warn); }
+  table.report { width:100%; border-collapse:collapse; margin-top:8px; font-size:12px; }
+  table.report td, table.report th { border-top:1px solid var(--line); padding:5px 6px; vertical-align:top; text-align:left; }
+  table.report th { color:var(--muted); font-weight:600; font-size:11px; }
+  #composer { border-top:1px solid var(--line); padding:10px 14px 12px; }
+  #composer .box { display:flex; gap:8px; align-items:flex-end; }
+  #composer .box button { height:66px; flex:none; }
+  #composer textarea { flex:1; resize:none; height:66px; min-height:44px; background:var(--code); color:var(--text); border:1px solid var(--line); border-radius:10px; padding:9px 10px; font:inherit; font-size:13px; }
+  #composer textarea:focus { outline:none; border-color:#3a4458; }
+  button { background:var(--accent); color:#111; border:none; border-radius:9px; padding:8px 13px; font-weight:700; cursor:pointer; font-size:13px; }
+  button.ghost { background:#262c3a; color:var(--text); font-weight:600; }
+  button.sm { padding:4px 9px; font-size:12px; border-radius:7px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .examples { display:flex; gap:6px; overflow:auto; padding:8px 0 0; scrollbar-width:none; }
+  .examples span { flex:none; font-size:11.5px; background:#1b2029; border:1px solid var(--line); padding:4px 9px; border-radius:999px; cursor:pointer; color:#cfd6e6; }
+  .examples span:hover { border-color:var(--accent); }
+
+  /* viewer */
+  #viewer { position:relative; min-width:0; min-height:0; background:radial-gradient(1200px 700px at 50% 40%, #171b23 0%, #0c0e12 70%); }
+  #viewer canvas { display:block; width:100% !important; height:100% !important; }
+  #hud { position:absolute; left:12px; top:10px; display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); flex-wrap:wrap; max-width:calc(100% - 290px); z-index:2; }
+  .pill { background:rgba(19,22,28,.88); border:1px solid var(--line); border-radius:999px; padding:4px 10px; backdrop-filter:blur(6px); display:inline-flex; gap:6px; align-items:center; }
+  .pill input { margin:0; }
+  #views { position:absolute; right:12px; top:10px; display:flex; gap:4px; }
+  #views button { background:rgba(19,22,28,.88); color:var(--text); border:1px solid var(--line); font-weight:600; }
+  #views button:hover { border-color:var(--accent); }
+  #tip { position:absolute; pointer-events:none; background:rgba(12,14,18,.94); border:1px solid var(--line); border-radius:7px; padding:6px 9px; font-size:12px; display:none; max-width:320px; z-index:3; }
+  #faceinfo { position:absolute; right:12px; bottom:12px; background:rgba(19,22,28,.94); border:1px solid var(--line); border-radius:10px; padding:9px 11px; font-size:12px; max-width:380px; display:none; backdrop-filter:blur(6px); }
+  #faceinfo .close { float:right; cursor:pointer; color:var(--muted); margin-left:10px; }
+  #empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); pointer-events:none; text-align:center; padding:40px; flex-direction:column; gap:8px; }
+  #empty b { color:var(--text); font-size:16px; }
+  #legend { position:absolute; left:12px; bottom:12px; font-size:11.5px; color:var(--muted); display:none; }
+  #legend .sw { display:inline-block; width:10px; height:10px; border-radius:2px; background:var(--accent); vertical-align:middle; margin-right:5px; }
+
+  /* right */
+  #metrics { font-size:12.5px; color:#d5dbe8; display:grid; grid-template-columns:auto 1fr; gap:3px 12px; }
+  #metrics b { color:var(--muted); font-weight:500; }
+  .row { display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+  #versions { max-height:150px; overflow:auto; font-size:12.5px; display:flex; flex-direction:column; gap:2px; }
+  .ver { padding:5px 7px; border-radius:7px; cursor:pointer; display:flex; gap:8px; align-items:center; }
+  .ver:hover { background:#1b2029; } .ver.active { background:#232a3b; }
+  .ver .n { color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ver .v { color:#c9d1e3; }
+  #scriptwrap { flex:1; display:flex; flex-direction:column; min-height:0; }
+  #scriptwrap .sec { flex:1; display:flex; flex-direction:column; min-height:0; border-bottom:none; }
+  #editor { position:relative; flex:1; min-height:160px; border:1px solid var(--line); border-radius:9px; background:var(--code); overflow:hidden; }
+  #editor:focus-within { border-color:#3a4458; }
+  #editor textarea, #editor pre { margin:0; padding:10px 12px; font:12.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; tab-size:4; white-space:pre; word-wrap:normal; overflow:auto; position:absolute; inset:0; }
+  #editor pre { pointer-events:none; color:#d9e1ff; }
+  #editor textarea { background:transparent; color:transparent; caret-color:#fff; border:none; resize:none; outline:none; z-index:1; }
+  .k { color:#c792ea; } .n { color:#f78c6c; } .s { color:#c3e88d; } .c { color:#546e7a; font-style:italic; } .f { color:#82aaff; } .p { color:#ffcb6b; }
+  #diff { display:none; max-height:160px; overflow:auto; border:1px solid var(--line); border-radius:9px; background:var(--code); font:11.5px/1.45 ui-monospace, Menlo, Consolas, monospace; margin-top:8px; padding:6px 0; }
+  #diff div { padding:0 10px; white-space:pre; }
+  #diff .add { background:rgba(62,207,142,.13); color:#bff2d9; } #diff .del { background:rgba(255,92,92,.13); color:#ffc9c9; } #diff .ctx { color:var(--muted); }
+  #difftoggle { color:var(--muted); font-size:12px; cursor:pointer; user-select:none; }
+  #rebuild-status { color:var(--muted); font-size:12px; }
+
+  #lightbox { position:fixed; inset:0; background:rgba(0,0,0,.88); display:none; align-items:center; justify-content:center; z-index:50; cursor:zoom-out; }
+  #lightbox img { max-width:94vw; max-height:94vh; border-radius:8px; background:#fff; }
+  .spinner { width:10px; height:10px; border:2px solid var(--muted); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; display:inline-block; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  ::-webkit-scrollbar { width:10px; height:10px; } ::-webkit-scrollbar-thumb { background:#2a3140; border-radius:5px; } ::-webkit-scrollbar-track { background:transparent; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "/static/vendor/three.module.min.js",
+               "three/addons/controls/OrbitControls.js": "/static/vendor/OrbitControls.js" } }
+</script>
+</head>
+<body>
+<header>
+  <h1><span>Foreman</span> &nbsp;self-verifying AI CAD</h1>
+  <div class="sub">brief → exact B-rep in SMLib / USD BRep → the agent inspects &amp; measures its own part → verified USD</div>
+  <div class="right"><span id="status"><span class="dot"></span>connecting…</span></div>
+</header>
+
+<div class="panel" id="left">
+  <div id="splitter" title="Drag to resize"></div>
+  <div class="sec">
+    <h3>Requirements checklist <span class="cnt" id="checklist-count"></span></h3>
+    <div id="checklist"><div id="checklist-empty">The agent extracts a checklist from your brief and ticks items off as it verifies them with the kernel.</div></div>
+    <div id="assumptions"></div>
+  </div>
+  <div id="chat"></div>
+  <div id="composer">
+    <div id="composer-grip" title="Drag to resize"></div>
+    <div class="box">
+      <textarea id="input" placeholder="Describe a part… e.g. 'A pillow block bearing housing for a 22 mm bearing, 35 mm centre height, two Ø6.5 mounting holes.'  (⌘/Ctrl+Enter to send)"></textarea>
+      <button id="send">Send</button>
+    </div>
+    <div class="examples" id="examples"></div>
+  </div>
+</div>
+
+<div id="viewer">
+  <div id="hud">
+    <span class="pill" id="hud-version">no part yet</span>
+    <span class="pill" id="hud-tris" style="display:none"></span>
+    <label class="pill"><input type="checkbox" id="facecolors" checked> face colours</label>
+    <label class="pill"><input type="checkbox" id="showedges" checked> edges</label>
+    <label class="pill" id="others-pill" style="display:none"><input type="checkbox" id="showothers" checked> <span id="others-label">other parts</span></label>
+    <label class="pill" id="xray-pill" style="display:none"><input type="checkbox" id="xray"> see-through</label>
+  </div>
+  <div id="views">
+    <button class="sm" data-view="iso">Iso</button><button class="sm" data-view="top">Top</button><button class="sm" data-view="front">Front</button><button class="sm" data-view="right">Right</button><button class="sm" data-view="fit">Fit</button>
+  </div>
+  <div id="tip"></div>
+  <div id="legend"><span class="sw"></span><span id="legend-text"></span></div>
+  <div id="faceinfo"></div>
+  <div id="empty"><b>Exact kernel geometry, live</b><div>Hover a face for its census id · click to pin · the ids match what the agent sees and measures.</div></div>
+</div>
+
+<div class="panel" id="right">
+  <div class="sec">
+    <h3>Kernel metrics</h3>
+    <div id="metrics"><i style="color:var(--muted)">nothing built yet</i></div>
+    <div class="row"><button class="ghost sm" id="download" disabled>⬇ Download USD (BrepArray + mesh)</button><button class="ghost sm" id="screenshot" disabled>Agent's view</button><button class="ghost sm" id="loadusd" title="Load an existing USD BRep part to audit or modify it">⬆ Load USD part</button><input type="file" id="usdfile" accept=".usda,.usdc,.usd" style="display:none"></div>
+  </div>
+  <div class="sec">
+    <h3>Versions <span class="cnt" id="ver-count"></span></h3>
+    <div id="versions"><i style="color:var(--muted);font-size:12px">every version is a full rebuild from its script</i></div>
+  </div>
+  <div id="scriptwrap">
+    <div class="sec">
+      <h3>Feature script <span style="text-transform:none;letter-spacing:0;font-weight:500">— the model <i>is</i> this script; edit &amp; rebuild</span></h3>
+      <div id="editor"><pre id="hl"></pre><textarea id="script" spellcheck="false" placeholder="# the agent's parametric feature script appears here"></textarea></div>
+      <div id="diff"></div>
+      <div class="row"><button class="ghost sm" id="rebuild" disabled>Rebuild from my edit</button><span id="difftoggle" style="display:none">show changes vs previous ▾</span><span id="rebuild-status"></span></div>
+    </div>
+  </div>
+</div>
+
+<div id="lightbox"><img id="lightbox-img"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let session = null, busy = false, currentVersion = null;
+const versions = {};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+const EXAMPLES = [
+  "A 3D-printed case for a microcontroller board 55 x 35 mm: an open-top base with 2 mm walls and 20 mm tall, and a lid that slides over the top 8 mm of the base. The lid is held on by snap tabs on the outside of the two long walls of the base. Design both parts so the lid actually fits and the tabs engage, and verify the fit.",
+  "A mounting bracket: 80 x 50 x 8 mm plate with a central boss Ø20 x 20 mm tall carrying a Ø10 through-hole, four Ø5.5 mounting holes 8 mm from the corners, 4 mm outer fillets and 2 mm fillets where the boss meets the plate.",
+  "A hollow enclosure 90 x 60 x 30 mm with 2 mm walls, open on top, with four Ø3.2 screw bosses (Ø7) in the inside corners reaching the top rim, and 3 mm rounded vertical outside edges.",
+  "A pulley for a 6 mm round belt: Ø60 outer, 12 mm wide, V-groove 4 mm deep, Ø8 bore with a 2.5 mm keyway, hub Ø20 extending 6 mm on one side.",
+  "A pillow block bearing housing for a 22 mm bearing OD, 35 mm centre height, base 70 x 30 mm with two Ø6.5 mounting holes, 3 mm fillets.",
+  "A hex nut M10: 17 mm across flats, 8 mm thick, Ø8.5 hole, chamfered outer edges.",
+];
+
+// ---------------------------------------------------------------- three.js
+const viewer = $('viewer');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+viewer.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 10000);
+camera.up.set(0, 0, 1); camera.position.set(120, -140, 100);
+const controls = new OrbitControls(camera, renderer.domElement); controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x2a3140, 0.85));
+const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(80, -120, 160); scene.add(key);
+const fill = new THREE.DirectionalLight(0xbfd4ff, 0.35); fill.position.set(-100, 80, 40); scene.add(fill);
+const grid = new THREE.GridHelper(200, 20, 0x2a3140, 0x1b2029); grid.rotation.x = Math.PI / 2; scene.add(grid);
+scene.add(new THREE.AxesHelper(20));
+let otherObjs = [];
+let meshObj = null, edgeObj = null, faceIds = null, colors = null, pinned = null, census = null, hover = null, extHL = new Set();
+const PALETTE = [[120,170,220],[235,160,90],[130,200,140],[210,120,150],[170,150,220],[220,200,100],[120,200,200],[200,140,100],[160,190,120],[190,120,190],[100,160,180],[230,180,150]];
+
+function resize() { const w = viewer.clientWidth, h = viewer.clientHeight; renderer.setSize(w, h, true); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+new ResizeObserver(resize).observe(viewer); resize();
+(function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); })();
+
+function loadMesh(v) {
+  if (meshObj) { scene.remove(meshObj); meshObj.geometry.dispose(); }
+  if (edgeObj) { scene.remove(edgeObj); edgeObj.geometry.dispose(); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(v.positions, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(v.normals, 3));
+  faceIds = v.faceIds; colors = new Float32Array(faceIds.length * 3);
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  meshObj = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.15, roughness: 0.5, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 6 }));
+  scene.add(meshObj);
+  const pts = [];
+  for (const e of v.edges) for (let i = 0; i + 5 < e.points.length; i += 3) pts.push(e.points[i], e.points[i+1], e.points[i+2], e.points[i+3], e.points[i+4], e.points[i+5]);
+  const eg = new THREE.BufferGeometry(); eg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  edgeObj = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color: 0x0e1016 })); edgeObj.visible = $('showedges').checked; scene.add(edgeObj);
+  pinned = null; extHL = new Set(); $('faceinfo').style.display = 'none'; $('legend').style.display = 'none';
+  colourAll();
+  hoverOther = null;
+  for (const o of otherObjs) { scene.remove(o); o.geometry.dispose(); }
+  otherObjs = [];
+  const OTHER_COLS = [0x9a9aa6, 0x7f8aa0, 0xb3a98f];
+  (v.others || []).forEach((ov, k) => {
+    const og = new THREE.BufferGeometry();
+    og.setAttribute('position', new THREE.Float32BufferAttribute(ov.positions, 3));
+    og.setAttribute('normal', new THREE.Float32BufferAttribute(ov.normals, 3));
+    const om = new THREE.Mesh(og, new THREE.MeshStandardMaterial({ color: OTHER_COLS[k % 3], metalness: 0.1, roughness: 0.6, side: THREE.DoubleSide, transparent: true, opacity: 1.0, depthWrite: true }));
+    const ep = []; for (const e of ov.edges) for (let i = 0; i + 5 < e.points.length; i += 3) ep.push(...e.points.slice(i, i + 6));
+    const eg2 = new THREE.BufferGeometry(); eg2.setAttribute('position', new THREE.Float32BufferAttribute(ep, 3));
+    const el = new THREE.LineSegments(eg2, new THREE.LineBasicMaterial({ color: 0x0e1016 }));
+    om.add(el); om.userData.name = ov.name; scene.add(om); otherObjs.push(om);
+  });
+  $('others-pill').style.display = otherObjs.length ? '' : 'none';
+  $('xray-pill').style.display = otherObjs.length ? '' : 'none';
+  $('others-label').textContent = otherObjs.length ? otherObjs.map(o => o.userData.name).join(', ') : 'other parts';
+  applyOthers();
+  const box3 = new THREE.Box3().setFromObject(meshObj); for (const o of otherObjs) box3.union(new THREE.Box3().setFromObject(o));
+  g.boundingSphere = box3.getBoundingSphere(new THREE.Sphere());
+  const bs = g.boundingSphere; grid.position.set(bs.center.x, bs.center.y, 0);
+  const gs = Math.max(100, Math.ceil(bs.radius * 4 / 50) * 50); grid.scale.setScalar(gs / 200);
+  setView('iso');
+  $('empty').style.display = 'none'; $('hud-tris').style.display = ''; $('hud-tris').textContent = v.triangleCount.toLocaleString() + ' tris';
+}
+function setView(name) {
+  if (!meshObj) return;
+  const bs = meshObj.geometry.boundingSphere; controls.target.copy(bs.center);
+  const dist = bs.radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.45;
+  const dirs = { iso: [0.7, -0.9, 0.6], top: [0, -0.0001, 1], front: [0, -1, 0.0001], right: [1, 0, 0.0001], fit: null };
+  const d = dirs[name] || camera.position.clone().sub(controls.target).normalize().toArray();
+  camera.position.copy(bs.center).add(new THREE.Vector3(...d).normalize().multiplyScalar(dist));
+}
+document.querySelectorAll('#views button').forEach(b => b.onclick = () => setView(b.dataset.view));
+function colourAll() {
+  if (!faceIds) return;
+  const use = $('facecolors').checked;
+  const hl = new Set(extHL); if (pinned !== null) hl.add(pinned); if (hover !== null) hl.add(hover);
+  for (let i = 0; i < faceIds.length; i++) {
+    const f = faceIds[i]; let c = use && f >= 0 ? PALETTE[f % PALETTE.length] : [178, 186, 204];
+    if (hl.has(f)) c = f === hover && !extHL.has(f) && f !== pinned ? [255, 160, 120] : [255, 122, 69];
+    colors[i*3] = c[0]/255; colors[i*3+1] = c[1]/255; colors[i*3+2] = c[2]/255;
+  }
+  meshObj.geometry.attributes.color.needsUpdate = true;
+}
+function highlightFaces(ids, label) {
+  extHL = new Set((ids || []).filter(s => /^F\d+$/.test(s)).map(s => +s.slice(1)));
+  colourAll();
+  $('legend').style.display = extHL.size ? 'block' : 'none';
+  $('legend-text').textContent = label || ('highlighted: ' + [...extHL].map(f => 'F' + f).join(', '));
+}
+$('facecolors').onchange = colourAll;
+function applyOthers() {
+  const show = $('showothers').checked, xr = $('xray').checked;
+  for (const o of otherObjs) { o.visible = show; o.material.opacity = xr ? 0.25 : 1.0; o.material.depthWrite = !xr; o.material.needsUpdate = true; }
+}
+$('showothers').onchange = applyOthers; $('xray').onchange = applyOthers;
+$('showedges').onchange = () => { if (edgeObj) edgeObj.visible = $('showedges').checked; };
+
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+let hoverOther = null;   // another assembly body under the pointer (THREE.Mesh)
+function setOtherHover(o) {
+  if (hoverOther === o) return;
+  if (hoverOther) hoverOther.material.emissive.setHex(0x000000);
+  hoverOther = o;
+  if (o) o.material.emissive.setHex(0x553322);
+}
+renderer.domElement.addEventListener('pointermove', (ev) => {
+  if (!meshObj) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((ev.clientX - r.left) / r.width) * 2 - 1; mouse.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
+  ray.setFromCamera(mouse, camera);
+  // pick the nearest body; in see-through mode the other parts are skipped so you can
+  // reach the primary part through them
+  const pickable = [meshObj, ...otherObjs.filter(o => o.visible && !$('xray').checked)];
+  const hit = ray.intersectObjects(pickable, false)[0]; const tip = $('tip');
+  if (!hit) { tip.style.display = 'none'; setOtherHover(null); if (hover !== null) { hover = null; colourAll(); } return; }
+  tip.style.display = 'block'; tip.style.left = (ev.clientX - r.left + 14) + 'px'; tip.style.top = (ev.clientY - r.top + 14) + 'px';
+  const coords = `<span style="color:var(--muted)">${hit.point.x.toFixed(2)}, ${hit.point.y.toFixed(2)}, ${hit.point.z.toFixed(2)}</span>`;
+  if (hit.object !== meshObj) {
+    if (hover !== null) { hover = null; colourAll(); }
+    setOtherHover(hit.object);
+    tip.innerHTML = `<b>${esc(hit.object.userData.name)}</b> · other part<br>${coords}<br><span style="color:var(--muted);font-size:11px">click for its metrics · tick see-through to reach the part behind</span>`;
+    return;
+  }
+  setOtherHover(null);
+  const fid = faceIds[hit.faceIndex * 3];
+  if (fid !== hover) { hover = fid; colourAll(); }
+  const info = census && census.faces[fid];
+  tip.innerHTML = `<b>F${fid}</b>` + (info ? ` · ${info.type}${info.radius ? ' r=' + info.radius : ''} · ${info.area} mm²<br>${coords}` : '');
+});
+renderer.domElement.addEventListener('pointerleave', () => { $('tip').style.display = 'none'; setOtherHover(null); });
+renderer.domElement.addEventListener('click', () => {
+  if (hoverOther) { pinned = null; colourAll(); showBodyInfo(hoverOther.userData.name); return; }
+  if (hover === null) { pinned = null; $('faceinfo').style.display = 'none'; colourAll(); return; }
+  pinned = hover; colourAll(); showFaceInfo(pinned);
+});
+function showBodyInfo(name) {
+  const m = versions[currentVersion] && versions[currentVersion].metrics;
+  const body = m && (m.assembly || []).find(b => b.name === name);
+  const fits = (m && m.fits || []).filter(f => f.a === name || f.b === name);
+  const row = (k, v) => `<div><span style="color:var(--muted)">${k}</span> ${v}</div>`;
+  let html = `<span class="close" onclick="this.parentElement.style.display='none'">✕</span><b>${esc(name)}</b> <span style="color:var(--muted)">other part of the assembly</span><div class="mono" style="margin-top:4px;font-size:11.5px">`;
+  if (body) {
+    html += row('size', body.size ? body.size.map(x => x.toFixed(2)).join(' × ') + ' mm' : '—');
+    html += row('bbox', body.bbox_min ? `(${body.bbox_min.join(', ')}) → (${body.bbox_max.join(', ')})` : '—');
+    html += row('volume', body.volume_mm3 != null ? body.volume_mm3 + ' mm³' : '—');
+    html += row('solid', body.manifold_solid ? 'manifold' : 'NOT manifold');
+    html += row('topology', `${body.faces} faces · ${body.edges} edges`);
+  }
+  for (const f of fits) {
+    const other = f.a === name ? f.b : f.a;
+    html += row(`fit vs ${esc(other)}`, `${esc(f.relationship)}, gap ${f.min_gap_mm} mm` + (f.interference_mm3 ? `, interference ${f.interference_mm3} mm³` : ''));
+  }
+  html += `</div><div style="color:var(--muted);font-size:11px;margin-top:4px">Face ids are only listed for the primary part (\`part = ...\` in the script).</div>`;
+  const box = $('faceinfo'); box.style.display = 'block'; box.innerHTML = html;
+}
+function showFaceInfo(fid) {
+  const info = census && census.faces[fid]; const box = $('faceinfo'); box.style.display = 'block';
+  const rows = info ? Object.entries(info).filter(([k]) => k !== 'id').map(([k, v]) => `<div><span style="color:var(--muted)">${k}</span> ${esc(JSON.stringify(v))}</div>`).join('') : '';
+  box.innerHTML = `<span class="close" onclick="this.parentElement.style.display='none'">✕</span><b>F${fid}</b> <span style="color:var(--muted)">census entry (exact geometry)</span><div class="mono" style="margin-top:4px;font-size:11.5px">${rows}</div>`;
+}
+
+// ---------------------------------------------------------------- checklist
+let checklist = [];
+function renderChecklist() {
+  const el = $('checklist'); el.innerHTML = '';
+  if (!checklist.length) { el.innerHTML = '<div id="checklist-empty">The agent extracts a checklist from your brief and ticks items off as it verifies them with the kernel.</div>'; $('checklist-count').textContent = ''; return; }
+  for (const r of checklist) {
+    const d = document.createElement('div'); d.className = 'req ' + (r.pass === true ? 'pass' : r.pass === false ? 'fail' : '');
+    d.innerHTML = `<div class="ic"></div><div><span class="id">${esc(r.id)}</span>${esc(r.text)}${r.method ? `<div style="color:var(--muted);font-size:11px">${esc(r.method)}</div>` : ''}</div><div class="res">${esc(r.result || '')}</div>`;
+    el.appendChild(d);
+  }
+  const done = checklist.filter(r => r.pass !== undefined).length, passed = checklist.filter(r => r.pass === true).length;
+  $('checklist-count').textContent = done ? `${passed}/${checklist.length} verified` : `${checklist.length} items`;
+}
+function applyReport(report) {
+  for (const row of report || []) {
+    let r = row.id && checklist.find(c => c.id === row.id);
+    if (!r) r = checklist.find(c => c.text.toLowerCase() === (row.requirement || '').toLowerCase());
+    if (!r) { r = { id: 'R' + (checklist.length + 1), text: row.requirement }; checklist.push(r); }
+    r.pass = !!row.pass; r.method = row.method; r.result = row.result;
+  }
+  renderChecklist();
+}
+
+// ---------------------------------------------------------------- chat
+const chat = $('chat');
+function md(t) {
+  const lines = esc(t).split('\n'); let html = '', inList = false;
+  for (const l of lines) {
+    const li = l.match(/^\s*[-*]\s+(.*)$/);
+    if (li) { if (!inList) { html += '<ul style="margin:4px 0 4px 18px;padding:0">'; inList = true; } html += `<li>${li[1]}</li>`; continue; }
+    if (inList) { html += '</ul>'; inList = false; }
+    html += l + '\n';
+  }
+  if (inList) html += '</ul>';
+  return html.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\n+$/, '');
+}
+function finishText() { if (agentText) { agentText.innerHTML = md(agentText.textContent); agentText = null; } }
+function addMsg(cls, text) { const d = document.createElement('div'); d.className = 'msg ' + cls; d.textContent = text; chat.appendChild(d); chat.scrollTop = chat.scrollHeight; return d; }
+function addCard(kind, title, bodyHtml, err = false) {
+  const d = document.createElement('div'); d.className = 'card' + (err ? ' err' : '');
+  const ic = { build: 'B', look: 'L', measure: 'M', finish: '✓', plan: 'P', error: '!' }[kind] || '';
+  d.innerHTML = `<div class="t"><span class="ico ${kind}">${ic}</span>${title}</div>${bodyHtml}`; chat.appendChild(d); chat.scrollTop = chat.scrollHeight; return d;
+}
+$('lightbox').onclick = () => $('lightbox').style.display = 'none';
+chat.addEventListener('click', (e) => {
+  if (e.target.tagName === 'IMG') { $('lightbox-img').src = e.target.src; $('lightbox').style.display = 'flex'; }
+  if (e.target.classList.contains('link') && e.target.dataset.faces) highlightFaces(e.target.dataset.faces.split(','), 'from trace: ' + e.target.dataset.faces);
+});
+function faceLinks(text) { return esc(text).replace(/\b(F\d+)\b/g, '<span class="link" data-faces="$1">$1</span>'); }
+
+function fmtMetrics(m) {
+  if (!m) return '';
+  const rows = [['solid', m.manifold_solid ? '<span class="badge ok">manifold</span>' : '<span class="badge bad">NOT manifold</span>'],
+    ['size', m.size ? m.size.map(x => x.toFixed(1)).join(' × ') + ' mm' : '—'],
+    ['bbox', m.bbox_min ? `(${m.bbox_min.map(x => x.toFixed(1)).join(', ')}) → (${m.bbox_max.map(x => x.toFixed(1)).join(', ')})` : '—'],
+    ['volume', m.volume_mm3 != null ? (m.volume_mm3 / 1000).toFixed(2) + ' cm³' : '—'],
+    ['area', m.surface_area_mm2 != null ? m.surface_area_mm2.toFixed(0) + ' mm²' : '—'],
+    ['topology', `${m.faces} faces · ${m.edges} edges · ${m.vertices} vertices`]];
+  for (const f of (m.fits || [])) {
+    const inter = f.interference_mm3 ? `<span class="badge warn" title="expected only at snap/press features">interference ${f.interference_mm3} mm³</span>` : `<span class="badge">no interference</span>`;
+    rows.push([`${esc(f.a)} ↔ ${esc(f.b)}`, `${esc(f.relationship)}, gap ${f.min_gap_mm} mm ${inter}` + (f.interference_bbox ? `<div style="color:var(--muted);font-size:11px">at (${f.interference_bbox.min.join(', ')}) → (${f.interference_bbox.max.join(', ')})</div>` : '')]);
+  }
+  return rows.map(([k, v]) => `<b>${k}</b><span>${v}</span>`).join('');
+}
+
+// ---------------------------------------------------------------- versions + script editor
+function showVersion(n) {
+  const v = versions[n]; if (!v) return;
+  currentVersion = n; setScript(v.script);
+  if (v.viewer) { census = v.census; loadMesh(v.viewer); $('metrics').innerHTML = fmtMetrics(v.metrics); $('download').disabled = false; $('screenshot').disabled = false; }
+  $('hud-version').textContent = `v${n}` + (v.ok ? '' : ' (failed)') + (v.note ? ' — ' + v.note : '');
+  document.querySelectorAll('.ver').forEach(el => el.classList.toggle('active', +el.dataset.v === n));
+  renderDiff(n);
+}
+function addVersion(ev) {
+  versions[ev.version] = ev;
+  if (Object.keys(versions).length === 1) $('versions').innerHTML = '';
+  const d = document.createElement('div'); d.className = 'ver'; d.dataset.v = ev.version;
+  d.innerHTML = `<span class="badge ${ev.ok ? 'ok' : 'bad'}">v${ev.version}</span><span class="n">${esc(ev.note || '')}</span>` + (ev.ok && ev.metrics ? `<span class="v">${(ev.metrics.volume_mm3/1000).toFixed(1)} cm³</span>` : '');
+  d.onclick = () => showVersion(ev.version);
+  $('versions').prepend(d); $('ver-count').textContent = Object.keys(versions).length + ' build' + (Object.keys(versions).length > 1 ? 's' : '');
+  if (ev.ok) showVersion(ev.version); else { currentVersion = ev.version; setScript(ev.script); renderDiff(ev.version); }
+}
+const FN = /\b(box|cylinder|cone|sphere|torus|extrude|revolve|sweep_pipe|union|difference|intersection|fillet|chamfer|fillet_all|chamfer_all|shell|move|rotate|cut_plane|copy|pattern_linear|pattern_polar|faces|edges|volume|bbox|is_solid|print|range|len|dict|list|abs|min|max|round)(?=\()/g;
+function hl(code) {
+  const re = /(#.*$)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(\b\d+\.?\d*(?:e-?\d+)?\b)|(\b(?:for|in|if|else|elif|and|or|not|True|False|None|lambda|return|while)\b)|(\b(?:box|cylinder|cone|sphere|torus|extrude|revolve|sweep_pipe|loft|draft_extrude|sweep|offset|union|difference|intersection|fillet|chamfer|fillet_all|chamfer_all|shell|move|rotate|cut_plane|copy|pattern_linear|pattern_polar|faces|edges|volume|bbox|is_solid|print|range|len|dict|list|abs|min|max|round)(?=\())|(\bpart\b(?=\s*=))/gm;
+  let out = '', last = 0, m;
+  while ((m = re.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    const cls = m[1] ? 'c' : m[2] ? 's' : m[3] ? 'n' : m[4] ? 'k' : m[5] ? 'f' : 'p';
+    out += `<span class="${cls}">${esc(m[0])}</span>`; last = m.index + m[0].length;
+  }
+  return out + esc(code.slice(last));
+}
+function setScript(code) { $('script').value = code || ''; $('hl').innerHTML = hl(code || '') + '\n'; $('rebuild').disabled = !(code || '').trim(); }
+$('script').addEventListener('input', () => { $('hl').innerHTML = hl($('script').value) + '\n'; $('rebuild').disabled = !$('script').value.trim(); });
+$('script').addEventListener('scroll', () => { $('hl').scrollTop = $('script').scrollTop; $('hl').scrollLeft = $('script').scrollLeft; });
+$('script').addEventListener('keydown', (e) => { if (e.key === 'Tab') { e.preventDefault(); const t = e.target, s = t.selectionStart; t.value = t.value.slice(0, s) + '    ' + t.value.slice(t.selectionEnd); t.selectionStart = t.selectionEnd = s + 4; t.dispatchEvent(new Event('input')); } });
+
+function lcsDiff(a, b) {
+  const n = a.length, m = b.length, dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i+1][j+1] + 1 : Math.max(dp[i+1][j], dp[i][j+1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) { if (a[i] === b[j]) { out.push(['ctx', a[i]]); i++; j++; } else if (dp[i+1][j] >= dp[i][j+1]) { out.push(['del', a[i]]); i++; } else { out.push(['add', b[j]]); j++; } }
+  while (i < n) out.push(['del', a[i++]]); while (j < m) out.push(['add', b[j++]]);
+  return out;
+}
+let diffOpen = false;
+function renderDiff(n) {
+  const prev = Object.keys(versions).map(Number).filter(k => k < n).sort((a, b) => b - a)[0];
+  const tg = $('difftoggle'), box = $('diff');
+  if (!prev) { tg.style.display = 'none'; box.style.display = 'none'; return; }
+  const d = lcsDiff(versions[prev].script.split('\n'), versions[n].script.split('\n'));
+  const changed = d.filter(x => x[0] !== 'ctx').length;
+  tg.style.display = ''; tg.textContent = `${changed} line${changed === 1 ? '' : 's'} changed vs v${prev} ${diffOpen ? '▴' : '▾'}`;
+  box.innerHTML = d.filter((x, i) => x[0] !== 'ctx' || d.slice(Math.max(0, i - 1), i + 2).some(y => y[0] !== 'ctx')).map(([k, l]) => `<div class="${k}">${k === 'add' ? '+' : k === 'del' ? '−' : ' '} ${esc(l)}</div>`).join('');
+  box.style.display = diffOpen && changed ? 'block' : 'none';
+}
+$('difftoggle').onclick = () => { diffOpen = !diffOpen; renderDiff(currentVersion); };
+
+// ---------------------------------------------------------------- api
+async function api(path, opts) { const r = await fetch(path, opts); if (!r.ok) throw new Error((await r.json()).detail || r.statusText); return r.json(); }
+async function init() {
+  const h = await api('/api/health');
+  const s = await api('/api/session', { method: 'POST' }); session = s.session;
+  $('status').innerHTML = h.has_api_key ? `<span class="dot"></span>kernel ready · ${esc(s.model)}` : `<span class="dot bad"></span>no API key (ANTHROPIC_API_KEY or OPENAI_API_KEY) — chat disabled, manual builds work`;
+  for (const ex of EXAMPLES) { const sp = document.createElement('span'); sp.textContent = ex.slice(0, 52) + '…'; sp.title = ex; sp.onclick = () => { $('input').value = ex; $('input').focus(); }; $('examples').appendChild(sp); }
+  addMsg('agent', "Hi — I'm Foreman. Describe a part and I'll model it in the SMLib kernel, then inspect, measure and correct it until it matches your brief. You can also edit the feature script on the right and rebuild it yourself.");
+}
+init().catch(e => { $('status').innerHTML = '<span class="dot bad"></span>' + esc(e.message); });
+
+let agentText = null, pendingCard = null;
+async function send() {
+  const text = $('input').value.trim(); if (!text || busy || !session) return;
+  $('input').value = ''; busy = true; $('send').disabled = true; $('send').innerHTML = '<span class="spinner"></span>';
+  addMsg('user', text); agentText = null;
+  try {
+    const resp = await fetch(`/api/session/${session}/message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    if (!resp.ok) throw new Error((await resp.json()).detail || resp.statusText);
+    const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    while (true) {
+      const { value, done } = await reader.read(); if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i; while ((i = buf.indexOf('\n\n')) >= 0) { const line = buf.slice(0, i); buf = buf.slice(i + 2); if (line.startsWith('data: ')) handle(JSON.parse(line.slice(6))); }
+    }
+  } catch (e) { addCard('error', 'error', esc(e.message), true); }
+  finishText(); highlightFaces([]);
+  busy = false; $('send').disabled = false; $('send').textContent = 'Send';
+}
+function handle(ev) {
+  switch (ev.type) {
+    case 'text': if (!agentText) agentText = addMsg('agent', ''); agentText.textContent += ev.text; chat.scrollTop = chat.scrollHeight; break;
+    case 'tool_call': finishText();
+      if (ev.name === 'build') pendingCard = addCard('build', 'build <span class="spinner"></span>', `<span style="color:var(--muted)">${esc(ev.input.note || '')}</span>`);
+      else if (ev.name === 'look') { pendingCard = addCard('look', ev.input.section_point ? 'look · section' : 'look', `<span class="mono">${faceLinks(JSON.stringify(ev.input))}</span>`); if (ev.input.highlight_faces) highlightFaces(ev.input.highlight_faces, 'agent is looking at ' + ev.input.highlight_faces.join(', ')); }
+      else if (ev.name === 'measure') { pendingCard = addCard('measure', 'measure · ' + esc(ev.input.kind), `<span class="mono">${faceLinks(JSON.stringify(ev.input))}</span>`); const ids = JSON.stringify(ev.input).match(/F\d+/g); if (ids) highlightFaces(ids, 'measuring ' + ids.join(', ')); }
+      else pendingCard = null;
+      break;
+    case 'plan': checklist = ev.requirements.map(r => ({ id: r.id, text: r.text })); renderChecklist();
+      $('assumptions').innerHTML = ev.assumptions && ev.assumptions.length ? '<b>Assumptions:</b> ' + ev.assumptions.map(esc).join(' · ') : '';
+      addCard('plan', 'checklist', ev.requirements.map(r => `<div><span style="color:var(--muted)">${r.id}</span> ${esc(r.text)}</div>`).join('')); break;
+    case 'build': {
+      if (pendingCard) pendingCard.remove(); pendingCard = null;
+      if (ev.ok) addCard('build', `build v${ev.version} <span class="badge ok">${ev.seconds}s</span>`, `${esc(ev.note)}<div style="margin-top:4px;color:var(--muted)">${ev.metrics.size.map(x=>x.toFixed(1)).join(' × ')} mm · ${(ev.metrics.volume_mm3/1000).toFixed(2)} cm³ · ${ev.metrics.faces} faces · ${ev.metrics.manifold_solid ? 'manifold' : '<span style="color:var(--bad)">not manifold</span>'}</div>`);
+      else addCard('build', `build v${ev.version} failed`, `<div class="mono">${esc(ev.error)}</div>`, true);
+      addVersion(ev); break; }
+    case 'image': addCard('look', 'the agent is looking at', `<span style="color:var(--muted)">${esc(ev.caption || '')}</span><img src="data:image/png;base64,${ev.png_b64}">`); break;
+    case 'measure': { const tgt = pendingCard || addCard('measure', 'measure', ''); tgt.innerHTML += `<div class="mono" style="margin-top:4px">→ ${faceLinks(JSON.stringify(ev.result))}</div>`; pendingCard = null; break; }
+    case 'finish': applyReport(ev.report);
+      addCard('finish', `verification report <span class="badge">${esc(ev.model || '')}</span>`, `${esc(ev.summary)}<table class="report"><tr><th></th><th>requirement</th><th>how verified</th><th>result</th></tr>${(ev.report || []).map(r => `<tr><td>${r.pass ? '<span class="badge ok">pass</span>' : '<span class="badge bad">fail</span>'}</td><td>${esc(r.requirement)}</td><td style="color:var(--muted)">${faceLinks(r.method)}</td><td>${faceLinks(r.result)}</td></tr>`).join('')}</table>`);
+      highlightFaces([]); break;
+    case 'error': addCard('error', 'error', esc(ev.message), true); break;
+  }
+}
+$('send').onclick = send;
+
+// ---------------------------------------------------------------- resizable chat panel + input
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+function setLeftW(px) {
+  const w = Math.max(320, Math.min(px, Math.round(window.innerWidth * 0.6)));
+  document.documentElement.style.setProperty('--left-w', w + 'px'); return w;
+}
+function setInputH(px) {
+  const h = Math.max(44, Math.min(px, Math.round(window.innerHeight * 0.6)));
+  $('input').style.height = h + 'px'; return h;
+}
+if (store.get('foreman.leftW')) setLeftW(+store.get('foreman.leftW'));
+if (store.get('foreman.inputH')) setInputH(+store.get('foreman.inputH'));
+function dragger(el, onMove, onEnd) {
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add('drag'); document.body.classList.add('dragging');
+    const start = { x: e.clientX, y: e.clientY }, move = (ev) => onMove(ev, start);
+    const up = () => { el.classList.remove('drag'); document.body.classList.remove('dragging'); el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); onEnd && onEnd(); };
+    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up);
+  });
+}
+let leftW0 = 0, inputH0 = 0;
+$('splitter').addEventListener('pointerdown', () => { leftW0 = $('left').getBoundingClientRect().width; });
+dragger($('splitter'), (ev, st) => setLeftW(leftW0 + ev.clientX - st.x), () => store.set('foreman.leftW', Math.round($('left').getBoundingClientRect().width)));
+$('splitter').addEventListener('dblclick', () => { document.documentElement.style.removeProperty('--left-w'); store.set('foreman.leftW', ''); });
+$('composer-grip').addEventListener('pointerdown', () => { inputH0 = $('input').getBoundingClientRect().height; });
+dragger($('composer-grip'), (ev, st) => setInputH(inputH0 - (ev.clientY - st.y)), () => store.set('foreman.inputH', Math.round($('input').getBoundingClientRect().height)));
+$('composer-grip').addEventListener('dblclick', () => { $('input').style.height = ''; store.set('foreman.inputH', ''); });
+$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send(); });
+
+$('rebuild').onclick = async () => {
+  if (busy || !session) return;
+  $('rebuild').disabled = true; $('rebuild-status').innerHTML = '<span class="spinner"></span> building…';
+  try {
+    const r = await api(`/api/session/${session}/build`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ script: $('script').value, note: 'manual edit' }) });
+    if (r.ok) { addVersion({ version: r.version, ok: true, note: 'manual edit', metrics: r.metrics, viewer: r.viewer, census: r.census, script: $('script').value }); $('rebuild-status').textContent = `v${r.version} built`; }
+    else { addVersion({ version: r.version, ok: false, note: 'manual edit (failed)', script: $('script').value }); $('rebuild-status').textContent = 'failed'; addCard('build', `manual build v${r.version} failed`, `<div class="mono">${esc(r.error)}</div>`, true); }
+  } catch (e) { $('rebuild-status').textContent = e.message; }
+  $('rebuild').disabled = false;
+};
+$('download').onclick = () => { window.location = `/api/session/${session}/export.usda`; };
+$('loadusd').onclick = () => $('usdfile').click();
+$('usdfile').onchange = async () => {
+  const f = $('usdfile').files[0]; if (!f || busy) return;
+  const fd = new FormData(); fd.append('file', f);
+  addMsg('user', `(loaded ${f.name})`);
+  try {
+    const r = await api(`/api/session/${session}/import`, { method: 'POST', body: fd });
+    for (const ev of r.events) handle(ev);
+    addMsg('agent', `Loaded ${f.name} as the current part (review mode). Ask me to audit it — e.g. "check minimum wall 2 mm and that all holes go through" — or to modify it.`);
+  } catch (e) { addCard('error', 'import failed', esc(e.message), true); }
+  $('usdfile').value = '';
+};
+$('screenshot').onclick = () => { $('lightbox-img').src = `/api/session/${session}/render.png?t=${Date.now()}`; $('lightbox').style.display = 'flex'; };
+</script>
+</body>
+</html>

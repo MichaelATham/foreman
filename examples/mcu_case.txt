@@ -1,0 +1,1 @@
+A 3D-printed case for a microcontroller board 55 x 35 mm: an open-top base with 2 mm walls and 20 mm tall, and a lid that slides over the top 8 mm of the base. The lid is held on by snap tabs on the outside of the two long walls of the base. Design both parts so the lid actually fits and the tabs engage, and verify the fit.
